@@ -268,12 +268,12 @@ void processLedCommand(uint8_t *message) {
 
 ### **Schritt 4: Visualisierung der Signale mit dem Oszilloskop**
 (Optional)
-1. Verbinden Sie eine Sonde des Oszilloskops mit dem GPIO-Pin (z.B., PA5 oder PB0), der den Motor oder die LED steuert.
+1. Verbinden Sie eine Sonde des Oszilloskops mit dem UART-Pin.
 2. Stellen Sie sicher, dass das Oszilloskop korrekt konfiguriert ist:
-   - **Zeitbasis**: Wählen Sie eine geeignete Zeitbasis, um das PWM-Signal zu sehen.
+   - **Zeitbasis**: Wählen Sie eine geeignete Zeitbasis, um das UART-Signal zu sehen.
    - **Spannungsskala**: Passen Sie die Spannungsskala an den Ausgangspegel des GPIO-Pins an.
 3. Beobachten und analysieren Sie das Signal:
-   - Überprüfen Sie die Frequenz und Pulsbreite des PWM-Signals für verschiedene Geschwindigkeiten/Helligkeiten.
+   - Überprüfen Sie den Inhalt des gesendeten Befehls.
 
 ---
 
@@ -281,15 +281,6 @@ void processLedCommand(uint8_t *message) {
 1. Erweitern Sie das UART-Protokoll, um zusätzliche Geräte zu unterstützen (z.B., weitere Motoren oder LEDs).
 2. Implementieren Sie eine Funktion zur Fehlerbehandlung bei ungültigen Nachrichten (z.B., falscher CRC oder unbekanntes Gerät).
 3. Fügen Sie einen Zustand hinzu, um die Kommunikation zu pausieren und wieder aufzunehmen.
-
----
-
-## **Abschluss**
-Nach Abschluss des Labors sollten die Studierenden:
-- Die Konzepte einer Zustandsmaschine verstanden haben.
-- Wissen, wie man UART-Kommunikation implementiert und dekodiert.
-- In der Lage sein, Motoren und LEDs basierend auf empfangenen Befehlen zu steuern.
-- Die Bedeutung von Datenintegrität durch CRC-Prüfung verstanden haben.
 
 ---
 
