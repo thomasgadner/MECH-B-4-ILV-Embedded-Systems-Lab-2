@@ -1,0 +1,298 @@
+---
+
+# **Laborrichtlinie: Steuerung von Motoren und LEDs mit einer Zustandsmaschine und UART-Kommunikation**
+
+---
+
+## **Übersicht**
+
+In diesem Labor lernen wir, wie man eine Zustandsmaschine (Finite State Machine, FSM) implementiert, um verschiedene Motoren und LEDs zu steuern. Die Steuerbefehle werden über UART von einem PC gesendet. Die Nachrichten enthalten Informationen über das Zielgerät (Motor oder LED), die Länge der Nachricht, die Nutzlast und eine CRC-Prüfung zur Fehlererkennung.
+
+---
+
+### **Blockdiagramm**
+
+```plaintext
++---------------------+       +-------------------+
+|                     |       |                   |
+|   Nucleo-F091       |       |        PC         |
+|                     |       |                   |
+| +-----------------+ |       |                   |
+| | UART-Schnittstelle | <-----> UART-Terminal     |
+| +-----------------+ |       |                   |
+|                     |       +-------------------+
+| +-----------------+ |
+| | Motorsteuerung   | -----> Motorensteuerung
+| +-----------------+ |
+|                     |
+| +-----------------+ |
+| | LED-Steuerung    | -----> LED-Ausgabe
+| +-----------------+ |
++---------------------+
+```
+
+---
+
+## **Ziele**
+1. Verstehen des Konzepts einer Zustandsmaschine (FSM) in eingebetteten Systemen.
+2. Implementierung der UART-Kommunikation zwischen einem PC und dem Nucleo-F091 Board.
+3. Steuerung von Motoren und LEDs basierend auf empfangenen Befehlen.
+4. Implementierung einer CRC-Prüfung zur Fehlererkennung in den empfangenen Nachrichten.
+
+---
+
+## **Benötigte Materialien**
+1. Nucleo-F091 Entwicklungsboard.
+2. DC-Motoren oder Servomotoren (mindestens zwei).
+3. LED mit Vorwiderstand.
+4. Oszilloskop (optional zur Überprüfung der PWM-Signale).
+5. Steckbrett und Jumper-Kabel.
+6. USB-Kabel für die Verbindung des Nucleo-F091 mit dem PC.
+7. Terminalprogramm auf dem PC (z.B., [PuTTY](https://www.putty.org/) oder [CoolTerm](https://freeware.the-meiers.org/)).
+
+---
+
+## **Vorbereitung vor dem Labor**
+1. **Theoretische Grundlagen**:
+   - Zustandsmaschinen: Definition, Aufbau und Implementierung.
+   - UART-Kommunikation: Aufbau eines UART-Protokolls, Senden/Empfangen von Daten.
+   - Grundlagen der Motorsteuerung mit PWM.
+   - LED-Steuerung über GPIO-Pins.
+
+2. **Installieren von PlatformIO**:
+   - Installieren Sie [PlatformIO](https://platformio.org/) als Erweiterung in Visual Studio Code.
+   - Erstellen Sie ein neues Projekt für das STM32F091 Board:
+     ```plaintext
+     Board: Nucleo-F091RC
+     Framework: STM32 HAL
+     ```
+   - Stellen Sie sicher, dass die Toolchain korrekt installiert ist (ARM GCC Compiler).
+
+3. **UART-Protokoll**:
+   - Die Nachricht hat folgendes Format:
+     ```
+     [Header][Device][Motor-ID][Länge][Payload][CRC]
+     ```
+     - **Header**: Startzeichen der Nachricht (z.B., `0xAA`).
+     - **Device**: Zielgerät (`MT` für Motor oder `LED` für LED).
+     - **Motor-ID**: Identifikation des Motors (z.B., `M1`, `M2`).
+     - **Länge**: Länge der Nutzlast in Bytes.
+     - **Payload**: Daten für das Gerät (z.B., Drehgeschwindigkeit des Motors oder Helligkeit der LED).
+     - **CRC**: Prüfsumme zur Fehlererkennung.
+
+---
+
+## **Laboranleitung**
+
+### **Schritt 1: Aufbau der Hardware**
+1. Verbinden Sie zwei Motoren mit den entsprechenden GPIO-Pins des Nucleo-F091 Boards:
+   - Motor 1: PWM-Ausgang an PA5.
+   - Motor 2: PWM-Ausgang an PA6.
+2. Verbinden Sie eine LED mit einem GPIO-Pin des Nucleo-F091 Boards (z.B., PB0) über einen Vorwiderstand.
+3. Schließen Sie das Nucleo-F091 Board über USB an den PC an, um die UART-Kommunikation zu ermöglichen.
+
+---
+
+### **Schritt 2: Implementierung des Codes**
+
+#### **Teil A: UART-Konfiguration**
+1. Initialisieren Sie die UART-Schnittstelle, um Daten vom PC zu empfangen:
+```cpp
+#include "main.h"
+
+UART_HandleTypeDef huart2;
+
+void MX_USART2_UART_Init(void) {
+    huart2.Instance = USART2;
+    huart2.Init.BaudRate = 9600; // Baudrate einstellen
+    huart2.Init.WordLength = UART_WORDLENGTH_8B;
+    huart2.Init.StopBits = UART_STOPBITS_1;
+    huart2.Init.Parity = UART_PARITY_NONE;
+    huart2.Init.Mode = UART_MODE_TX_RX;
+    huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+    huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+    if (HAL_UART_Init(&huart2) != HAL_OK) {
+        Error_Handler();
+    }
+}
+```
+
+#### **Teil B: Zustandsmaschine (FSM)**
+1. Implementieren Sie eine Zustandsmaschine, die basierend auf den empfangenen UART-Befehlen entscheidet, ob ein Motor oder eine LED gesteuert werden soll.
+   - Zustände:
+     - **IDLE**: Warten auf neue Befehle.
+     - **PROCESS_MOTOR**: Verarbeitung der Motorsteuerbefehle.
+     - **PROCESS_LED**: Verarbeitung der LED-Steuerbefehle.
+
+```cpp
+typedef enum {
+    IDLE,
+    PROCESS_MOTOR,
+    PROCESS_LED
+} State;
+
+State currentState = IDLE;
+
+void finiteStateMachine(uint8_t *message) {
+    uint8_t deviceType = message[1]; // Gerätetyp (MT oder LED)
+    
+    switch (currentState) {
+        case IDLE:
+            if (deviceType == 'MT') {
+                currentState = PROCESS_MOTOR;
+            } else if (deviceType == 'LED') {
+                currentState = PROCESS_LED;
+            }
+            break;
+
+        case PROCESS_MOTOR:
+            processMotorCommand(message);
+            currentState = IDLE; // Zurück zum IDLE-Zustand
+            break;
+
+        case PROCESS_LED:
+            processLedCommand(message);
+            currentState = IDLE; // Zurück zum IDLE-Zustand
+            break;
+    }
+}
+```
+
+#### **Teil D: Nachrichtendekodierung**
+1. Implementieren Sie eine Funktion, die die empfangene Nachricht dekodiert und die CRC überprüft:
+```cpp
+uint8_t validateCRC(uint8_t *message, uint8_t length) {
+    uint8_t crc = 0;
+    for (uint8_t i = 0; i < length - 1; i++) { // CRC berechnen
+        crc ^= message[i];
+    }
+    return (crc == message[length - 1]); // Vergleich mit gesendetem CRC
+}
+
+void decodeMessage(uint8_t *message, uint8_t length) {
+    if (!validateCRC(message, length)) {
+        printf("CRC-Fehler!\n");
+        return; // Nachricht ignorieren bei Fehler
+    }
+
+    finiteStateMachine(message); // Zustandsmaschine aufrufen
+}
+```
+
+#### **Teil E: Motorsteuerung**
+1. Implementieren Sie eine Funktion zur Steuerung der Motoren basierend auf dem empfangenen Befehl:
+```cpp
+void processMotorCommand(uint8_t *message) {
+    uint8_t motorId = message[2]; // Motor-ID (M1 oder M2)
+    uint8_t speed = message[4];   // Geschwindigkeit aus Payload
+
+    if (motorId == 'M1') {
+        setMotorSpeed(GPIO_PIN_5, speed); // Motor 1 steuern
+    } else if (motorId == 'M2') {
+        setMotorSpeed(GPIO_PIN_6, speed); // Motor 2 steuern
+    }
+}
+
+void setMotorSpeed(uint16_t pin, uint8_t speed) {
+    TIM_OC_InitTypeDef sConfigOC = {0};
+    
+    sConfigOC.OCMode = TIM_OCMODE_PWM1;
+    sConfigOC.Pulse = speed; // PWM-Pulsbreite basierend auf Geschwindigkeit
+    sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+    sConfigOC Sorry, the response was cut off! Let me continue and complete the implementation for the motor control and LED handling.
+
+---
+
+### **Schritt 2: Implementierung des Codes (Fortsetzung)**
+
+#### **Teil E: Motorsteuerung (Fortsetzung)**
+
+```cpp
+    sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+    sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+
+    HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, pin); // Konfiguriere PWM-Kanal
+    HAL_TIM_PWM_Start(&htim3, pin); // Starte PWM-Signal
+}
+```
+
+#### **Teil F: LED-Steuerung**
+1. Implementieren Sie eine Funktion zur Steuerung der LED basierend auf dem empfangenen Befehl:
+```cpp
+void processLedCommand(uint8_t *message) {
+    uint8_t brightness = message[4]; // Helligkeit aus Payload
+
+    // LED-Helligkeit mit PWM steuern
+    TIM_OC_InitTypeDef sConfigOC = {0};
+    
+    sConfigOC.OCMode = TIM_OCMODE_PWM1;
+    sConfigOC.Pulse = brightness; // PWM-Pulsbreite basierend auf Helligkeit
+    sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+    sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+
+    HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_1); // Konfiguriere PWM-Kanal für LED
+    HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1); // Starte PWM-Signal für LED
+}
+```
+
+---
+
+### **Schritt 3: Test der UART-Kommunikation**
+1. Öffnen Sie ein Terminalprogramm auf Ihrem PC (z.B., PuTTY oder CoolTerm).
+2. Stellen Sie sicher, dass die Baudrate auf **9600** eingestellt ist und die Verbindung korrekt hergestellt wurde.
+3. Senden Sie eine Nachricht im folgenden Format:
+   - Beispiel für Motorsteuerung:
+     ```
+     MT M1 02 50 CRC
+     ```
+     - `MT`: Motorsteuerung.
+     - `M1`: Motor-ID.
+     - `02`: Länge der Nutzlast in Bytes.
+     - `00`: Richtung.
+     - `50`: Geschwindigkeit (50%).
+     - `CRC`: Prüfsumme.
+   - Beispiel für LED-Steuerung:
+     ```
+     LED 01 80 CRC
+     ```
+     - `LED`: LED-Steuerung.
+     - `01`: Länge der Nutzlast in Bytes.
+     - `80`: Helligkeit (50%).
+     - `CRC`: Prüfsumme.
+
+4. Überprüfen Sie die Funktionalität:
+   - Der Motor sollte sich mit der angegebenen Geschwindigkeit drehen.
+   - Die LED sollte die angegebene Helligkeit anzeigen.
+
+---
+
+### **Schritt 4: Visualisierung der Signale mit dem Oszilloskop**
+(Optional)
+1. Verbinden Sie eine Sonde des Oszilloskops mit dem GPIO-Pin (z.B., PA5 oder PB0), der den Motor oder die LED steuert.
+2. Stellen Sie sicher, dass das Oszilloskop korrekt konfiguriert ist:
+   - **Zeitbasis**: Wählen Sie eine geeignete Zeitbasis, um das PWM-Signal zu sehen.
+   - **Spannungsskala**: Passen Sie die Spannungsskala an den Ausgangspegel des GPIO-Pins an.
+3. Beobachten und analysieren Sie das Signal:
+   - Überprüfen Sie die Frequenz und Pulsbreite des PWM-Signals für verschiedene Geschwindigkeiten/Helligkeiten.
+
+---
+
+## **Zusatzaufgabe**
+1. Erweitern Sie das UART-Protokoll, um zusätzliche Geräte zu unterstützen (z.B., weitere Motoren oder LEDs).
+2. Implementieren Sie eine Funktion zur Fehlerbehandlung bei ungültigen Nachrichten (z.B., falscher CRC oder unbekanntes Gerät).
+3. Fügen Sie einen Zustand hinzu, um die Kommunikation zu pausieren und wieder aufzunehmen.
+
+---
+
+## **Abschluss**
+Nach Abschluss des Labors sollten die Studierenden:
+- Die Konzepte einer Zustandsmaschine verstanden haben.
+- Wissen, wie man UART-Kommunikation implementiert und dekodiert.
+- In der Lage sein, Motoren und LEDs basierend auf empfangenen Befehlen zu steuern.
+- Die Bedeutung von Datenintegrität durch CRC-Prüfung verstanden haben.
+
+---
+
+## **Hinweise**
+- Achten Sie darauf, dass alle Verbindungen korrekt sind, um Schäden am Nucleo-F091 Board zu vermeiden.
+- Verwenden Sie Debugging-Funktionen in PlatformIO, um Fehler zu finden und zu beheben.
